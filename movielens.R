@@ -57,8 +57,9 @@ edx <- edx[1:1000,]
 ### Get the unique Genres and make a vector
 genres<- unlist(unique(simplify(strsplit(edx$genres, split="\\|"))))
 
-genreRatingsFunction <- function(genre) {
-  edx %>% filter(!!as.symbol(genre)) %>% select(rating) %>% mutate(genre=genre)
+genreRatingsFunction <- function(g) {
+  genre_match <- str_detect(edx$genres, g)
+  edx[genre_match] %>% select(rating) %>% mutate(genre=g)
 }
 
 genreRatings <- lapply(genres, function(x) genreRatingsFunction(x)) %>% bind_rows()
@@ -70,17 +71,18 @@ genreRatings %>% group_by(genre) %>% summarise(avg_rating = mean(rating)) %>% gg
 genreRatings %>% group_by(genre) %>% summarise(num_ratings =n()) %>% ggplot(aes(genre, num_ratings)) + geom_bar(stat="identity")
 
 ### Comparatively, Film Noir has very few ratings, but other ratings seem to make sense. Documentaries are ranked slightly higher than avg, action and comedy slightly lower
+mu <- mean(edx$rating)
 genre_bi <- genreRatings %>% group_by(genre) %>% summarise(b_i = mean(rating - mu)) %>% data.frame()
 
 
-### Helper to determine if movie has been labeled with a genre
+### calculate the Genre effect for a given rating
 calcGenreEffect <- function(g) {
   match <- str_detect(edx$genres, g)
   b_i <- genre_bi%>% filter(g == genre) %>% select(b_i)
   sapply(match, function(x) as.numeric(x) * as.numeric(b_i))
 }
 
-genre_df <- as.data.frame(sapply(genres, function(x) isGenre(x)))
+genre_df <- as.data.frame(sapply(genres, function(x) calcGenreEffect(x)))
 
 edx <- cbind(edx, genre_df)
 
