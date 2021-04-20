@@ -51,8 +51,21 @@ edx <- rbind(edx, removed)
 
 rm(dl, ratings, movies, test_index, temp, movielens, removed)
 
+###############################################
+# End Create edx set
+###############################################
+
 #### Start with just 1000 rows for now
-edx <- edx[1:1000,]
+edx <- edx[1:2000,]
+
+### Average rating
+mu <- mean(edx$rating)
+
+###############################################
+# Genre effect
+
+###############################################
+
 
 ### Get the unique Genres and make a vector
 genres<- unlist(unique(simplify(strsplit(edx$genres, split="\\|"))))
@@ -70,20 +83,46 @@ genreRatings %>% group_by(genre) %>% summarise(avg_rating = mean(rating)) %>% gg
 ### Film Noir, what has the most ratings?
 genreRatings %>% group_by(genre) %>% summarise(num_ratings =n()) %>% ggplot(aes(genre, num_ratings)) + geom_bar(stat="identity")
 
-### Comparatively, Film Noir has very few ratings, but other ratings seem to make sense. Documentaries are ranked slightly higher than avg, action and comedy slightly lower
-mu <- mean(edx$rating)
-genre_bi <- genreRatings %>% group_by(genre) %>% summarise(b_i = mean(rating - mu)) %>% data.frame()
+### Comparatively, Film Noir has very few ratings, but other ratings seem to make sense. 
+### Documentaries are ranked slightly higher than avg, action and comedy slightly lower
 
 
-### calculate the Genre effect for a given rating
-calcGenreEffect <- function(g) {
-  match <- str_detect(edx$genres, g)
-  b_i <- genre_bi%>% filter(g == genre) %>% select(b_i)
-  sapply(match, function(x) as.numeric(x) * as.numeric(b_i))
+genre_biases <- genreRatings %>% group_by(genre) %>% summarise(b_i = sum(rating - mu)/n(), n_i = n()) %>% data.frame()
+
+
+###############################################
+# User Genre Effect
+###############################################
+userGenreRatingsFunction <- function(g) {
+  genre_match <- str_detect(edx$genres, g)
+  genreBias <- genre_biases%>% filter(genre == g) %>% select(b_i)
+  edx[genre_match] %>% select(userId, rating) %>% group_by(userId) %>% summarise(bias = sum(rating - mu - genreBias) / n(), genre=g)
 }
 
-genre_df <- as.data.frame(sapply(genres, function(x) calcGenreEffect(x)))
+userGenreBiases <- lapply(genres, function(x) userGenreRatingsFunction(x)) %>% bind_rows()
 
-edx <- cbind(edx, genre_df)
+calcUserGenreEffect <- function(u, rg,g) {
+  
+  match <- str_detect(rg, g)
+  if(match) {
+    userGenreBias <- userGenreBiases %>% filter(userId == u & genre == g) %>% select(bias)
+    as.numeric(userGenreBias)
+  }
+  else {
+    0.00
+  }
+}
+
+userGenreBiasDf <-as.data.frame(sapply(genres, function(g) apply(edx, MARGIN=1, FUN = function(x) calcUserGenreEffect(as.numeric(x["userId"]), x["genres"], g))))
+edx <- cbind(edx, userGenreBiasDf)
 
 
+edx<- edx %>% select(-timestamp, -title, -genres)
+
+
+ind <- createDataPartition(edx$rating, times = 1, p=0.1, list=FALSE)
+train_set <- edx[-ind]
+test_set <- edx[ind]
+test_set <- test_set %>% 
+  semi_join(train_set, by = "movieId") %>%
+  semi_join(train_set, by = "userId")
