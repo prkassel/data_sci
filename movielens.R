@@ -7,7 +7,6 @@
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
 if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
-if(!require(Rfast)) install.packages("Rfast", repos = "http://cran.us.r-project.org")
 
 library(tidyverse)
 library(caret)
@@ -56,55 +55,92 @@ rm(dl, ratings, movies, test_index, temp, movielens, removed)
 # End Create edx set
 ###############################################
 
-#### Start with just 10000 rows for now
+#### Start with just 30000 rows for now
 
 
-# edx <- edx[1:10000,]
-# cp <- edx
+edx <- edx[70000:100000,]
 
-lambda = 3
+ind <- createDataPartition(edx$rating, times = 1, p=0.2, list=FALSE)
 
-### Average rating
-mu <- mean(edx$rating)
-
-movies_df <- edx %>% group_by(movieId) %>% summarise(movie_bias=sum(rating - mu)/(n() + lambda)) %>% select(movieId, movie_bias)
-
-
-genres_df <- edx %>% separate_rows(genres, sep="\\|")
-
-genre_biases <- genres_df %>% group_by(genres) %>% summarise(genre_bias = sum(rating - mu)/(n() + lambda))
-
-user_genre_biases <- genres_df %>% group_by(userId, genres) %>% summarise(user_genre_bias = sum(rating - mu)/(n() + lambda))
-
-user_genre_biases <- genres_df %>% inner_join(user_genre_biases, on=c("userId", "genres")) %>% inner_join(genre_biases, on="genres")
-
-user_genre_biases <- user_genre_biases %>% select(-rating,-timestamp,-title) %>% pivot_wider(names_from=genres, values_from=c("user_genre_bias", "genre_bias"))
-
-edx <- edx %>% inner_join(user_genre_biases, on=c("userId", "movieId"))
-edx <- edx %>% inner_join(movies_df, on="movieId")
-
-edx[is.na(edx)] <- 0
-
-
-### Testing an ML algorithm
-ind <- createDataPartition(edx$rating, times=1, p=0.2, list=FALSE)
-test_set <- edx[ind]
 train_set <- edx[-ind]
+test_set <- edx[ind]
 
+### we want to make sure that the test set only has movies and users that are in
+### the train set
 test_set <- test_set %>% 
   semi_join(train_set, by = "movieId") %>%
   semi_join(train_set, by = "userId")
 
-train_set <- train_set %>% select(-timestamp, -title, -genres)
-test_set <- test_set %>% select(-timestamp, -title, -genres)
 
-fit <- train(rating ~ ., method="glm", data=train_set)
+lambda = 1.25
 
-predictions <- predict(fit, test_set)
-predictions <- ifelse((round(predictions/.5)*.5) > 5, 5, round(predictions/.5)*.5)
+mu <- mean(train_set$rating)
+
+movies_df <- train_set %>% group_by(movieId) %>% summarise(movie_bias=sum(rating - mu)/(n() + lambda)) %>% select(movieId, movie_bias)
+users_df <- train_set %>% group_by(userId) %>% summarise(user_bias=sum(rating - mu)/(n() + lambda)) %>% select(userId, user_bias)
+
+
+genre_ratings_df <- train_set %>% separate_rows(genres, sep="\\|")
+
+
+user_genre_biases <- genre_ratings_df %>% group_by(userId, genres) %>% summarise(user_genre_bias = sum(rating - mu)/(n() + lambda))
+
+user_genre_ratings <- genre_ratings_df %>% inner_join(user_genre_biases, on=c("userId", "genres"))
+user_genre_ratings <- user_genre_ratings %>% select(-rating,-timestamp,-title) %>% pivot_wider(names_from=genres, values_from="user_genre_bias")
+
+
+train_set <- train_set %>% inner_join(user_genre_ratings, on=c("userId", "movieId"))
+train_set <- train_set %>% inner_join(movies_df, on="movieId")
+train_set <- train_set %>% inner_join(users_df, on="movieId")
+train_set <- train_set %>% select(-title, -genres, -timestamp)
+
+train_set$max_bias <- apply(X=train_set[,4:24], MARGIN=1, FUN=max, na.rm=TRUE)
+train_set$min_bias <- apply(X=train_set[,4:24], MARGIN=1, FUN=min, na.rm=TRUE)
+
+#### the idea here is that the biases compete with each other. If a movie is rated 
+### exceptionally high, but the 
+train_set$largest_bias <- ifelse(train_set$max_bias > abs(train_set$min_bias), train_set$max_bias, train_set$min_bias)
+train_set$net_bias <- train_set$max_bias + train_set$min_bias
+
+train_set$pred <- train_set$largest_bias + mu
+train_set$pred2 <- train_set$net_bias + mu
+
+
+
 
 RMSE <- function(true_ratings, predicted_ratings){
   sqrt(mean((true_ratings - predicted_ratings)^2))
 }
 
-glmRMSE <- RMSE(test_set$rating, predictions)
+print(RMSE(train_set$rating, train_set$pred))
+print(RMSE(train_set$rating, train_set$pred2))
+
+
+# edx[is.na(edx)] <- 0
+edx <- edx %>% select(-title, -genres, -timestamp)
+
+### Preparing Test Data
+test_set <- test_set %>% select(-timestamp, -title)
+test_set_ratings_by_genre <- test_set %>% separate_rows(genres, sep="\\|")
+test_set_ratings_by_genre <- test_set_ratings_by_genre %>% inner_join(user_genre_biases, on=c("userId", "genres"))
+test_set_user_genre_biases <-  test_set_ratings_by_genre %>% select(-rating) %>% pivot_wider(names_from=genres, values_from="user_genre_bias")
+
+test_set <- test_set %>% inner_join(test_set_user_genre_biases, on=c("userId", "movieId"))
+test_set <- test_set %>% inner_join(movies_df, on="movieId")
+test_set <- test_set %>% inner_join(users_df, on="movieId")
+test_set <- test_set %>% select(-genres)
+
+test_set$max_bias <- apply(X=test_set[,4:ncol(test_set)], MARGIN=1, FUN=max, na.rm=TRUE)
+test_set$min_bias <- apply(X=test_set[,4:ncol(test_set)], MARGIN=1, FUN=min, na.rm=TRUE)
+test_set$net_bias <- test_set$max_bias - test_set$min_bias
+
+test_set$largest_bias <- ifelse(test_set$max_bias > abs(test_set$min_bias), test_set$max_bias, test_set$min_bias)
+
+test_set$pred <- test_set$largest_bias + mu
+test_set$pred2 <- test_set$net_bias + mu
+
+print(RMSE(test_set$rating, test_set$pred))
+
+print(RMSE(test_set$rating, test_set$pred2))
+
+#### TODO create a function to prepare both the edx training set and the validation set with genre,movie,user biases
