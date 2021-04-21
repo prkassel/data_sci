@@ -7,6 +7,7 @@
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
 if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(Rfast)) install.packages("Rfast", repos = "http://cran.us.r-project.org")
 
 library(tidyverse)
 library(caret)
@@ -55,74 +56,55 @@ rm(dl, ratings, movies, test_index, temp, movielens, removed)
 # End Create edx set
 ###############################################
 
-#### Start with just 1000 rows for now
-edx <- edx[1:2000,]
+#### Start with just 10000 rows for now
+
+
+# edx <- edx[1:10000,]
+# cp <- edx
+
+lambda = 3
 
 ### Average rating
 mu <- mean(edx$rating)
 
-###############################################
-# Genre effect
-
-###############################################
+movies_df <- edx %>% group_by(movieId) %>% summarise(movie_bias=sum(rating - mu)/(n() + lambda)) %>% select(movieId, movie_bias)
 
 
-### Get the unique Genres and make a vector
-genres<- unlist(unique(simplify(strsplit(edx$genres, split="\\|"))))
+genres_df <- edx %>% separate_rows(genres, sep="\\|")
 
-genreRatingsFunction <- function(g) {
-  genre_match <- str_detect(edx$genres, g)
-  edx[genre_match] %>% select(rating) %>% mutate(genre=g)
-}
+genre_biases <- genres_df %>% group_by(genres) %>% summarise(genre_bias = sum(rating - mu)/(n() + lambda))
 
-genreRatings <- lapply(genres, function(x) genreRatingsFunction(x)) %>% bind_rows()
+user_genre_biases <- genres_df %>% group_by(userId, genres) %>% summarise(user_genre_bias = sum(rating - mu)/(n() + lambda))
 
-### Which genre has the highest avg rating?
-genreRatings %>% group_by(genre) %>% summarise(avg_rating = mean(rating)) %>% ggplot(aes(genre, avg_rating)) + geom_bar(stat="identity")
+user_genre_biases <- genres_df %>% inner_join(user_genre_biases, on=c("userId", "genres")) %>% inner_join(genre_biases, on="genres")
 
-### Film Noir, what has the most ratings?
-genreRatings %>% group_by(genre) %>% summarise(num_ratings =n()) %>% ggplot(aes(genre, num_ratings)) + geom_bar(stat="identity")
+user_genre_biases <- user_genre_biases %>% select(-rating,-timestamp,-title) %>% pivot_wider(names_from=genres, values_from=c("user_genre_bias", "genre_bias"))
 
-### Comparatively, Film Noir has very few ratings, but other ratings seem to make sense. 
-### Documentaries are ranked slightly higher than avg, action and comedy slightly lower
+edx <- edx %>% inner_join(user_genre_biases, on=c("userId", "movieId"))
+edx <- edx %>% inner_join(movies_df, on="movieId")
+
+edx[is.na(edx)] <- 0
 
 
-genre_biases <- genreRatings %>% group_by(genre) %>% summarise(b_i = sum(rating - mu)/n(), n_i = n()) %>% data.frame()
-
-
-###############################################
-# User Genre Effect
-###############################################
-userGenreRatingsFunction <- function(g) {
-  genre_match <- str_detect(edx$genres, g)
-  genreBias <- genre_biases%>% filter(genre == g) %>% select(b_i)
-  edx[genre_match] %>% select(userId, rating) %>% group_by(userId) %>% summarise(bias = sum(rating - mu - genreBias) / n(), genre=g)
-}
-
-userGenreBiases <- lapply(genres, function(x) userGenreRatingsFunction(x)) %>% bind_rows()
-
-calcUserGenreEffect <- function(u, rg,g) {
-  
-  match <- str_detect(rg, g)
-  if(match) {
-    userGenreBias <- userGenreBiases %>% filter(userId == u & genre == g) %>% select(bias)
-    as.numeric(userGenreBias)
-  }
-  else {
-    0.00
-  }
-}
-
-userGenreBiasDf <-as.data.frame(sapply(genres, function(g) apply(edx, MARGIN=1, FUN = function(x) calcUserGenreEffect(as.numeric(x["userId"]), x["genres"], g))))
-edx <- cbind(edx, userGenreBiasDf)
-
-
-edx<- edx %>% select(-timestamp, -title, -genres)
-
-
-ind <- createDataPartition(edx$rating, times = 1, p=0.1, list=FALSE)
-train_set <- edx[-ind]
+### Testing an ML algorithm
+ind <- createDataPartition(edx$rating, times=1, p=0.2, list=FALSE)
 test_set <- edx[ind]
+train_set <- edx[-ind]
+
 test_set <- test_set %>% 
   semi_join(train_set, by = "movieId") %>%
   semi_join(train_set, by = "userId")
+
+train_set <- train_set %>% select(-timestamp, -title, -genres)
+test_set <- test_set %>% select(-timestamp, -title, -genres)
+
+fit <- train(rating ~ ., method="glm", data=train_set)
+
+predictions <- predict(fit, test_set)
+predictions <- ifelse((round(predictions/.5)*.5) > 5, 5, round(predictions/.5)*.5)
+
+RMSE <- function(true_ratings, predicted_ratings){
+  sqrt(mean((true_ratings - predicted_ratings)^2))
+}
+
+glmRMSE <- RMSE(test_set$rating, predictions)
