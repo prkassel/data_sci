@@ -55,12 +55,11 @@ rm(dl, ratings, movies, test_index, temp, movielens, removed)
 # End Create edx set
 ###############################################
 
-#### Start with just 30000 rows for now
 
 
-edx <- edx[70000:100000,]
+edx <- edx[1:100000,]
 
-ind <- createDataPartition(edx$rating, times = 1, p=0.2, list=FALSE)
+ind <- createDataPartition(edx$rating, times = 1, p=0.1, list=FALSE)
 
 train_set <- edx[-ind]
 test_set <- edx[ind]
@@ -72,12 +71,12 @@ test_set <- test_set %>%
   semi_join(train_set, by = "userId")
 
 
-lambda = 1.25
+lambda = 3
 
 mu <- mean(train_set$rating)
 
-movies_df <- train_set %>% group_by(movieId) %>% summarise(movie_bias=sum(rating - mu)/(n() + lambda)) %>% select(movieId, movie_bias)
-users_df <- train_set %>% group_by(userId) %>% summarise(user_bias=sum(rating - mu)/(n() + lambda)) %>% select(userId, user_bias)
+movies_df <- train_set %>% group_by(movieId) %>% summarise(movie_bias=sum(rating - mu)/(n() + lambda )) %>% select(movieId, movie_bias)
+users_df <- train_set %>% group_by(userId) %>% summarise(user_bias=sum(rating - mu)/(n() + lambda + 20)) %>% select(userId, user_bias)
 
 
 genre_ratings_df <- train_set %>% separate_rows(genres, sep="\\|")
@@ -94,18 +93,17 @@ train_set <- train_set %>% inner_join(movies_df, on="movieId")
 train_set <- train_set %>% inner_join(users_df, on="movieId")
 train_set <- train_set %>% select(-title, -genres, -timestamp)
 
-train_set$max_bias <- apply(X=train_set[,4:24], MARGIN=1, FUN=max, na.rm=TRUE)
-train_set$min_bias <- apply(X=train_set[,4:24], MARGIN=1, FUN=min, na.rm=TRUE)
+train_set$user_genre_bias <- apply(X=train_set[,4:(ncol(train_set) - 2)], MARGIN=1, FUN=mean, na.rm=TRUE)
+train_set$max_bias <- apply(X=train_set[,(ncol(train_set) - 3): ncol(train_set)], MARGIN=1, FUN=max, na.rm=TRUE)
+train_set$min_bias <- apply(X=train_set[,(ncol(train_set) - 4): (ncol(train_set) - 1)], MARGIN=1, FUN=min, na.rm=TRUE)
 
 #### the idea here is that the biases compete with each other. If a movie is rated 
 ### exceptionally high, but the 
-train_set$largest_bias <- ifelse(train_set$max_bias > abs(train_set$min_bias), train_set$max_bias, train_set$min_bias)
+
 train_set$net_bias <- train_set$max_bias + train_set$min_bias
 
-train_set$pred <- train_set$largest_bias + mu
-train_set$pred2 <- train_set$net_bias + mu
 
-
+train_set$pred<- train_set$net_bias + mu
 
 
 RMSE <- function(true_ratings, predicted_ratings){
@@ -113,11 +111,7 @@ RMSE <- function(true_ratings, predicted_ratings){
 }
 
 print(RMSE(train_set$rating, train_set$pred))
-print(RMSE(train_set$rating, train_set$pred2))
 
-
-# edx[is.na(edx)] <- 0
-edx <- edx %>% select(-title, -genres, -timestamp)
 
 ### Preparing Test Data
 test_set <- test_set %>% select(-timestamp, -title)
@@ -130,17 +124,17 @@ test_set <- test_set %>% inner_join(movies_df, on="movieId")
 test_set <- test_set %>% inner_join(users_df, on="movieId")
 test_set <- test_set %>% select(-genres)
 
-test_set$max_bias <- apply(X=test_set[,4:ncol(test_set)], MARGIN=1, FUN=max, na.rm=TRUE)
-test_set$min_bias <- apply(X=test_set[,4:ncol(test_set)], MARGIN=1, FUN=min, na.rm=TRUE)
-test_set$net_bias <- test_set$max_bias - test_set$min_bias
+test_set$user_genre_bias <- apply(X=test_set[,4:(ncol(test_set) - 2)], MARGIN=1, FUN=mean, na.rm=TRUE)
+test_set$max_bias <- apply(X=test_set[,(ncol(test_set) - 3): ncol(test_set)], MARGIN=1, FUN=max, na.rm=TRUE)
+test_set$min_bias <- apply(X=test_set[,(ncol(test_set) - 4): (ncol(test_set) - 1)], MARGIN=1, FUN=min, na.rm=TRUE)
+test_set$net_bias <- test_set$max_bias + test_set$min_bias
 
-test_set$largest_bias <- ifelse(test_set$max_bias > abs(test_set$min_bias), test_set$max_bias, test_set$min_bias)
 
-test_set$pred <- test_set$largest_bias + mu
-test_set$pred2 <- test_set$net_bias + mu
+test_set$pred <- test_set$net_bias + mu
 
 print(RMSE(test_set$rating, test_set$pred))
 
-print(RMSE(test_set$rating, test_set$pred2))
+
+test_set %>% mutate(residual = rating - pred) %>% filter(residual %between% c(-3,-1)) %>% select(movieId, userId, residual) %>% slice(1:10)
 
 #### TODO create a function to prepare both the edx training set and the validation set with genre,movie,user biases
