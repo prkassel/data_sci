@@ -137,4 +137,28 @@ print(RMSE(test_set$rating, test_set$pred))
 
 test_set %>% mutate(residual = rating - pred) %>% filter(residual %between% c(-3,-1)) %>% select(movieId, userId, residual) %>% slice(1:10)
 
-#### TODO create a function to prepare both the edx training set and the validation set with genre,movie,user biases
+
+
+#############
+# Validation Test
+############
+
+validation <- validation %>% select(-timestamp, -title)
+validation_ratings_by_genre <- validation %>% separate_rows(genres, sep="\\|")
+validation_ratings_by_genre <- validation_ratings_by_genre %>% inner_join(user_genre_biases, on=c("userId", "genres"))
+validation_user_genre_biases <-  validation_ratings_by_genre %>% select(-rating) %>% pivot_wider(names_from=genres, values_from="user_genre_bias")
+
+validation <- validation %>% inner_join(validation_user_genre_biases, on=c("userId", "movieId"))
+validation <- validation %>% inner_join(movies_df, on="movieId")
+validation <- validation %>% inner_join(users_df, on="movieId")
+validation <- validation %>% select(-genres)
+
+validation$user_genre_bias <- apply(X=validation[,4:(ncol(validation) - 2)], MARGIN=1, FUN=mean, na.rm=TRUE)
+validation$max_bias <- apply(X=validation[,(ncol(validation) - 3): ncol(validation)], MARGIN=1, FUN=max, na.rm=TRUE)
+validation$min_bias <- apply(X=validation[,(ncol(validation) - 4): (ncol(validation) - 1)], MARGIN=1, FUN=min, na.rm=TRUE)
+validation$net_bias <- validation$max_bias + validation$min_bias
+
+
+validation$pred <- validation$net_bias + mu
+
+print(RMSE(validation$rating, validation$pred))
