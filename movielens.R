@@ -55,9 +55,7 @@ rm(dl, ratings, movies, test_index, temp, movielens, removed)
 # End Create edx set
 ###############################################
 
-
-
-edx <- edx[1:100000,]
+edx <- edx[1:500000,]
 
 ind <- createDataPartition(edx$rating, times = 1, p=0.1, list=FALSE)
 
@@ -70,19 +68,47 @@ test_set <- test_set %>%
   semi_join(train_set, by = "movieId") %>%
   semi_join(train_set, by = "userId")
 
-
-lambda = 3
+#### 
+genre_ratings_df <- train_set %>% separate_rows(genres, sep="\\|")
+test_genre_ratings_df <- test_set %>% separate_rows(genres, sep="\\|")
 
 mu <- mean(train_set$rating)
+lambdas <- seq(0,20,0.5)
 
-movies_df <- train_set %>% group_by(movieId) %>% summarise(movie_bias=sum(rating - mu)/(n() + lambda )) %>% select(movieId, movie_bias)
-users_df <- train_set %>% group_by(userId) %>% summarise(user_bias=sum(rating - mu)/(n() + lambda + 20)) %>% select(userId, user_bias)
+tune_lambdas <- function(grouping) {
+
+  if (grouping == "genre") {
+    biases <- genre_ratings_df %>% group_by(userId, genres)
+  }
+  else {
+    biases <- train_set %>% group_by(!!as.symbol(grouping))
+  }
+  rate_lambda <- function(lambda) {
+    if (grouping == "genre") {
+      temp <- biases %>% summarise(bias = sum(rating - mu)/(n() + lambda))
+      predictions <- test_genre_ratings_df %>% inner_join(temp, on=c("userId", "genres")) %>% mutate(pred = mu + bias) %>% select(rating, pred)
+    }
+    else {
+    temp <- biases %>% summarise(bias=sum(rating - mu) / (n() + lambda))
+    predictions <- test_set %>% inner_join(temp, on=!!as.symbol(grouping)) %>% mutate(pred = mu + bias) %>% select(rating, pred)
+    }
+  RMSE(predictions$rating, predictions$pred)
+  }
+  sapply(lambdas, FUN = function(x) rate_lambda(x))
+}
+
+movies_lambda <- lambdas[which.min(tune_lambdas("movieId"))]
+users_lambda <- lambdas[which.min(tune_lambdas("userId"))]
+genres_lambda <- lambdas[which.min(tune_lambdas("genre"))]
+
+print(c(movies_lambda, users_lambda, genres_lambda))
+
+movies_df <- train_set %>% group_by(movieId) %>% summarise(movie_bias=sum(rating - mu)/(n() + movies_lambda )) %>% select(movieId, movie_bias)
+users_df <- train_set %>% group_by(userId) %>% summarise(user_bias=sum(rating - mu)/(n() + users_lambda)) %>% select(userId, user_bias)
 
 
-genre_ratings_df <- train_set %>% separate_rows(genres, sep="\\|")
 
-
-user_genre_biases <- genre_ratings_df %>% group_by(userId, genres) %>% summarise(user_genre_bias = sum(rating - mu)/(n() + lambda))
+user_genre_biases <- genre_ratings_df %>% group_by(userId, genres) %>% summarise(user_genre_bias = sum(rating - mu)/(n() + genres_lambda))
 
 user_genre_ratings <- genre_ratings_df %>% inner_join(user_genre_biases, on=c("userId", "genres"))
 user_genre_ratings <- user_genre_ratings %>% select(-rating,-timestamp,-title) %>% pivot_wider(names_from=genres, values_from="user_genre_bias")
@@ -135,30 +161,4 @@ test_set$pred <- test_set$net_bias + mu
 print(RMSE(test_set$rating, test_set$pred))
 
 
-test_set %>% mutate(residual = rating - pred) %>% filter(residual %between% c(-3,-1)) %>% select(movieId, userId, residual) %>% slice(1:10)
-
-
-
-#############
-# Validation Test
-############
-
-validation <- validation %>% select(-timestamp, -title)
-validation_ratings_by_genre <- validation %>% separate_rows(genres, sep="\\|")
-validation_ratings_by_genre <- validation_ratings_by_genre %>% inner_join(user_genre_biases, on=c("userId", "genres"))
-validation_user_genre_biases <-  validation_ratings_by_genre %>% select(-rating) %>% pivot_wider(names_from=genres, values_from="user_genre_bias")
-
-validation <- validation %>% inner_join(validation_user_genre_biases, on=c("userId", "movieId"))
-validation <- validation %>% inner_join(movies_df, on="movieId")
-validation <- validation %>% inner_join(users_df, on="movieId")
-validation <- validation %>% select(-genres)
-
-validation$user_genre_bias <- apply(X=validation[,4:(ncol(validation) - 2)], MARGIN=1, FUN=mean, na.rm=TRUE)
-validation$max_bias <- apply(X=validation[,(ncol(validation) - 3): ncol(validation)], MARGIN=1, FUN=max, na.rm=TRUE)
-validation$min_bias <- apply(X=validation[,(ncol(validation) - 4): (ncol(validation) - 1)], MARGIN=1, FUN=min, na.rm=TRUE)
-validation$net_bias <- validation$max_bias + validation$min_bias
-
-
-validation$pred <- validation$net_bias + mu
-
-print(RMSE(validation$rating, validation$pred))
+test_set %>% filter(abs(rating - pred) > 1) %>% slice(1:10) %>% select(userId, movieId, rating, movie_bias, user_bias, user_genre_bias, min_bias, max_bias, net_bias, pred)

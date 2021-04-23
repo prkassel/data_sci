@@ -58,17 +58,16 @@ rm(dl, ratings, movies, test_index, temp, movielens, removed)
 ###############################################
 # TRAIN MODEL
 ###############################################
-lambda = 3
 
 mu <- mean(edx$rating)
 
-movies_df <- edx %>% group_by(movieId) %>% summarise(movie_bias=sum(rating - mu)/(n() + lambda )) %>% select(movieId, movie_bias)
-users_df <- edx %>% group_by(userId) %>% summarise(user_bias=sum(rating - mu)/(n() + lambda + 20)) %>% select(userId, user_bias)
+movies_df <- edx %>% group_by(movieId) %>% summarise(movie_bias=sum(rating - mu)/(n() + 2 )) %>% select(movieId, movie_bias)
+users_df <- edx %>% group_by(userId) %>% summarise(user_bias=sum(rating - mu)/(n() + 6)) %>% select(userId, user_bias)
 
 
 genre_ratings_df <- edx %>% separate_rows(genres, sep="\\|")
 
-user_genre_biases <- genre_ratings_df %>% group_by(userId, genres) %>% summarise(user_genre_bias = sum(rating - mu)/(n() + lambda))
+user_genre_biases <- genre_ratings_df %>% group_by(userId, genres) %>% summarise(user_genre_bias = sum(rating - mu)/(n() + 3.5))
 
 user_genre_ratings <- genre_ratings_df %>% inner_join(user_genre_biases, on=c("userId", "genres"))
 user_genre_ratings <- user_genre_ratings %>% select(-rating,-timestamp,-title) %>% pivot_wider(names_from=genres, values_from="user_genre_bias")
