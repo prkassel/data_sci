@@ -60,7 +60,7 @@ RMSE <- function(true_ratings, predicted_ratings){
   sqrt(mean((true_ratings - predicted_ratings)^2))
 }
 
-edx <- edx[1:100000,]
+edx <- edx[1:1000000,]
 edx$release_year <- str_sub(edx$title,start= -6)
 edx$release_year <- as.numeric(str_extract(edx$release_year, "\\d+"))
 edx$rating_year <- year(as.Date(as.POSIXct(edx$timestamp,origin="1970-01-01")))
@@ -177,14 +177,13 @@ test_genre_biases <- test_genre_biases %>% pivot_wider(names_from = genres, valu
 test_set <-test_set %>% left_join(test_genre_biases, on=c("userId", "movieId"))
 
 test_set$user_genre_bias <- apply(X=test_set[,12:ncol(test_set)], MARGIN=1, FUN=mean, na.rm=TRUE)
-test_set$user_genre_bias[is.na(test_set$user_genre_bias)] = 0
+test_set[is.na(test_set)] = 0
 
 test_set <- test_set %>% select(userId, movieId, rating, movie_bias, user_bias, user_genre_bias, recency_bias)
 
 test_set$pred<- test_set$movie_bias + test_set$user_bias + test_set$user_genre_bias + test_set$recency_bias + mu
 
 print(RMSE(test_set$rating, test_set$pred))
-
 
 test_set %>% filter(abs(rating - pred) > 1) %>% slice(1:10)
 
