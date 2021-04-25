@@ -65,9 +65,9 @@ edx$release_year <- str_sub(edx$title,start= -6)
 edx$release_year <- as.numeric(str_extract(edx$release_year, "\\d+"))
 edx$rating_year <- year(as.Date(as.POSIXct(edx$timestamp,origin="1970-01-01")))
 # Round to the nearest 10 year increment
-edx$years_from_release <- round((edx$rating_year - edx$release_year) / 10) * 10
+edx$years_since_release <- round((edx$rating_year - edx$release_year) / 10) * 10
 
-ind <- createDataPartition(edx$rating, times = 1, p=0.2, list=FALSE)
+ind <- createDataPartition(edx$rating, times = 1, p=0.1, list=FALSE)
 
 train_set <- edx[-ind]
 test_set <- edx[ind]
@@ -77,14 +77,14 @@ test_set <- edx[ind]
 test_set <- test_set %>% 
   semi_join(train_set, by = "movieId") %>%
   semi_join(train_set, by = "userId") %>%
-  semi_join(train_set, by = "years_from_release")
+  semi_join(train_set, by = "years_since_release")
 
 
 mu <- mean(train_set$rating)
-lambdas <- seq(0,10,0.1)
+lambdas <- seq(0,10,0.25)
 
 tune_lambdas <- function(grouping) {
-
+  print(grouping)
   if (grouping == "genre") {
     biases <- genre_ratings_df %>% group_by(userId, genres)
   }
@@ -101,17 +101,18 @@ tune_lambdas <- function(grouping) {
         mutate(pred=mu + genre_bias + movie_bias + user_bias)
     }
     else if (grouping == "userId") {
-      temp <- biases %>% summarise(user_bias = mean(rating - movie_bias - mu))
+      temp <- biases %>% summarise(user_bias = sum(rating - movie_bias - mu)/(n() + lambda))
       predictions <- test_set %>% inner_join(temp, on=!!as.symbol(grouping)) %>% 
         left_join(movies_df, on=movieId) %>% mutate(pred = mu + movie_bias + user_bias) %>% select(rating, pred)
     }
-    else if (grouping == "years_from_release") {
+    else if (grouping == "years_since_release") {
       ug <- user_genres_df %>% select(-movieId) %>% group_by(userId, genres) %>% summarise(genre_bias = mean(genre_bias))
       tg <- test_genre_ratings_df %>% inner_join(ug, on=genres) %>% group_by(userId, movieId) %>% 
         summarise(user_genre_bias = mean(genre_bias))
       temp <- biases %>% summarise(bias=sum(rating - mu - movie_bias - user_bias - user_genre_bias) / (n() + lambda))
 
-      predictions <- test_set %>% left_join(temp, on=years_from_release) %>% 
+      print(max(temp$years_since_release))
+      predictions <- test_set %>% left_join(temp, on=years_since_release) %>% 
         left_join(movies_df, on=movieId) %>% left_join(users_df, on=userId) %>%
         left_join(tg, on=c(userId, movieId))
       predictions[is.na(predictions)] = 0
@@ -154,11 +155,11 @@ train_set <- train_set %>% select(-title, -genres, -timestamp, -release_year, -r
 train_set$user_genre_bias <- apply(X=train_set[,6:ncol(train_set)], MARGIN=1, FUN=mean, na.rm=TRUE)
 
 #### Time Effect
-years_since_release_lambda <- tune_lambdas("years_from_release")
-recency_df <- train_set %>% group_by(years_from_release) %>% 
-  summarise(recency_bias=sum(rating - movie_bias - user_bias - user_genre_bias - mu)/(n() + lambdas[which.min(years_since_release_lambda)])) %>% select(years_from_release, recency_bias)
+years_since_release_lambda <- tune_lambdas("years_since_release")
+recency_df <- train_set %>% group_by(years_since_release) %>% 
+  summarise(recency_bias=sum(rating - movie_bias - user_bias - user_genre_bias - mu)/(n() + lambdas[which.min(years_since_release_lambda)])) %>% select(years_since_release, recency_bias)
 
-train_set <- train_set %>% inner_join(recency_df, on="years_from_release")
+train_set <- train_set %>% inner_join(recency_df, on="years_since_release")
 
 train_set <- train_set %>% select(userId, movieId, rating, movie_bias, user_bias, user_genre_bias, recency_bias)
 
@@ -170,7 +171,7 @@ print(RMSE(train_set$rating, train_set$pred))
 
 ### Preparing Test Data 
 test_set <- test_set %>% left_join(movies_df, on="movieId") %>% 
-  left_join(users_df, on="userId") %>% left_join(recency_df, on="years_from_release")
+  left_join(users_df, on="userId") %>% left_join(recency_df, on="years_since_release")
 test_user_genres_df <- user_genres_df %>% select(-movieId) %>% group_by(userId, genres) %>% summarise(genre_bias = mean(genre_bias))
 test_genre_biases <- test_genre_ratings_df %>% left_join(test_user_genres_df, on=(c("userId", "genres"))) %>% select(userId, movieId, genres, genre_bias)
 test_genre_biases <- test_genre_biases %>% pivot_wider(names_from = genres, values_from=genre_bias)

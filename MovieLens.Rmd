@@ -1,0 +1,278 @@
+---
+title: "Movielens Capstone Project"
+author: "Philip Kassel"
+date: "4/25/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
+
+library(tidyverse)
+library(caret)
+library(data.table)
+library(lubridate)
+
+# MovieLens 10M dataset:
+# https://grouplens.org/datasets/movielens/10m/
+# http://files.grouplens.org/datasets/movielens/ml-10m.zip
+
+dl <- tempfile()
+download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
+ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+                 col.names = c("userId", "movieId", "rating", "timestamp"))
+
+movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+colnames(movies) <- c("movieId", "title", "genres")
+
+
+# if using R 4.0 or later:
+movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(movieId),
+                                           title = as.character(title),
+                                           genres = as.character(genres))
+
+
+movielens <- left_join(ratings, movies, by = "movieId")
+
+# Validation set will be 10% of MovieLens data
+set.seed(1, sample.kind="Rounding") # if using R 3.5 or earlier, use `set.seed(1)`
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+edx <- movielens[-test_index,]
+temp <- movielens[test_index,]
+
+# Make sure userId and movieId in validation set are also in edx set
+validation <- temp %>% 
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+
+# Add rows removed from validation set back into edx set
+removed <- anti_join(temp, validation)
+edx <- rbind(edx, removed)
+
+rm(dl, ratings, movies, test_index, temp, movielens, removed)
+
+```
+
+## Introduction
+
+The purpose of this project is to improve upon the techniques described in the Movie Recommendations section of the textbook [Introduction to Data Science](https://www.routledge.com/Introduction-to-Data-Science-Data-Analysis-and-Prediction-Algorithms-with/Irizarry/p/book/9780367357986). Using actual moving ratings from the [MovieLens 10M Dataset](https://grouplens.org/datasets/movielens/), we want to design an algorithm that can predict the ratings that specific users will give to specific movies. To prevent overtraining of our model, the MovieLens data set will be split into two groups: a training set which is used to train and optimize our model and a validation set. The training set contains approximately 9 million ratings and the validation set contains approximately 1 million. Both the training set and the validation set contain the actual ratings that were given to specific movie/user combinations. The validation set, however, contains movie/user combinations that have not been seen by our model before. We can therefore compare our predicted ratings in the validation to the true ratings in order to measure how well our model performs.
+
+To measure the performance of our model, we will calculate the residual mean squared error (RMSE) of our predictions. RMSE can be interpreted as the average error we make when predicting a rating in our validation set. The smaller the number, the better our model performs. If the RMSE is larger than 1, it means that the average prediction is more than 1 star away from the true rating, which is not good. For this project, we will aim to achieve an RMSE less than 0.86490.
+
+## Preparing the Data
+
+Exploring the MovieLens dataset reveals that the following rating attributes can be used to train our model: the user that gave the rating, the movie that was rated, the true rating that was given, the timestamp of when the rating occurred, and the genres that were assigned to the rated movie.
+
+```{r "Inspecting Data"}
+edx[sample(.N, 5)]
+```
+Included in the title of each rated movie is the year that the movie was released, which we can extract from the title because it might be a useful predictor. We will also measure the length of time between each movie's release date and when each rating occurred, rounded the nearest 10 year increment.
+```{r "Extracting Date" }
+edx$release_year <- str_sub(edx$title,start= -6)
+edx$release_year <- as.numeric(str_extract(edx$release_year, "\\d+"))
+edx$rating_year <- year(as.Date(as.POSIXct(edx$timestamp,origin="1970-01-01")))
+edx$years_since_release <- round((edx$rating_year - edx$release_year) / 10) * 10
+
+edx[sample(.N, 5)]
+```
+
+## Techniques
+
+To train our model, we will first establish a baseline, *mu*, which is simply the average rating given in our training set. We will then build on this baseline by exploring how the following effects can influence a specific user's rating of a movie: The movie itself, the user that rated the movie, the user's genre preferences, and the time that elapsed between the release of the movie and when the rating was given.
+
+``` {r "Establishing Baseline" }
+mu <- mean(edx$rating)
+paste("Average Movie Rating:", round(mu, 3))
+```
+
+### Movie Effect
+
+Now that we have our baseline, we can approximate how different effects can influence how a particular movie will deviate from the average rating. For example, we know that some movies are more highly regarded than others, so we would expect for those movies to rate higher than average. Some movies are also known flops, so we would except for those movies to rate lower than average.
+
+``` {r "Visualize Movie Ratings" }
+
+titles <- c("Mars Attacks! (1996)", "Dumb and Dumberer: When Harry Met Lloyd (2003)", "Godfather, The (1972)", "Gone with the Wind (1939)", "War of the Worlds 2: The Next Wave (2008)", "Hellhounds on My Trail (1999)")
+edx %>% filter(title %in% titles) %>% group_by(title) %>% summarise(avg_movie_rating=mean(rating)) %>% arrange(avg_movie_rating) %>% 
+  mutate(title = strtrim(title, 25)) %>% ggplot(aes(title, avg_movie_rating)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+  ggtitle("Sample of Average Movie Ratings")
+
+```
+Some of these movies we would expect to have such high or low ratings; for example, the sequel to "Dumb and Dumber", "The Godfather", and "Gone with the Wind". But, is it really likely that we should assume that the average user will rate "Hellhounds on My Trail" higher than "The Godfather"? As it turns out, the less often a movie is rated, the more likely it is to appear at the extremes of the rating spectrum. In the following visual, we can clearly see that the movies with the highest and lowest ratings have been rated very few times.
+
+``` {r "Visualize Movie Ratings With Number of Ratings"}
+
+
+edx %>% filter(title %in% titles) %>% group_by(title) %>% summarise(avg_movie_rating=mean(rating), number_of_ratings = n()) %>% arrange(number_of_ratings) %>% ggplot(aes(number_of_ratings, avg_movie_rating, color=title)) + geom_point() + ggtitle("Avg Movie Rating Compared To Number of Reviews")
+
+```
+
+Using a technique called regularization, we can apply a new parameter, which we'll call *lambda*, that will penalize underrated movies in order to better approximate how they might deviate from our average rating, *mu*. We'll tune this parameter using cross-validation, so that we can find the best value for *lambda* that minimizes our RMSE score. Once *lambda* has been tuned, we can calculate the movie bias by subtracting the regularized average rating for each movie from our baseline *mu*.
+```{r echo=FALSE, message=FALSE}
+ind <- createDataPartition(edx$rating, times = 1, p=0.1, list=FALSE)
+
+train_set <- edx[-ind]
+test_set <- edx[ind]
+
+### we want to make sure that the test set only has movies and users that are in
+### the train set
+test_set <- test_set %>% 
+  semi_join(train_set, by = "movieId") %>%
+  semi_join(train_set, by = "userId") %>%
+  semi_join(train_set, by = "years_since_release")
+
+
+mu <- mean(train_set$rating)
+lambdas <- seq(0,20,.5)
+
+tune_lambdas <- function(grouping) {
+  if (grouping == "genre") {
+    biases <- genre_ratings_df %>% group_by(userId, genres)
+  }
+
+  else {
+    biases <- train_set %>% group_by(!!as.symbol(grouping))
+  }
+  rate_lambda <- function(lambda) {
+    if (grouping == "genre") {
+      temp <- biases %>% summarise(genre_bias = sum(rating - movie_bias - user_bias - mu)/(n() + lambda))
+      temp <- temp %>% inner_join(test_genre_ratings_df, on=genres)
+      predictions <- temp %>% 
+        left_join(movies_df, on="movieId") %>% left_join(users_df, on="userId") %>%
+        mutate(pred=mu + genre_bias + movie_bias + user_bias)
+    }
+    else if (grouping == "userId") {
+      temp <- biases %>% summarise(user_bias = sum(rating - movie_bias - mu)/(n() + lambda))
+      predictions <- test_set %>% inner_join(temp, on=!!as.symbol(grouping)) %>% 
+        left_join(movies_df, on=movieId) %>% mutate(pred = mu + movie_bias + user_bias) %>% select(rating, pred)
+    }
+    else if (grouping == "years_since_release") {
+      ug <- user_genres_df %>% select(-movieId) %>% group_by(userId, genres) %>% summarise(genre_bias = mean(genre_bias))
+      tg <- test_genre_ratings_df %>% inner_join(ug, on=genres) %>% group_by(userId, movieId) %>% 
+        summarise(user_genre_bias = mean(genre_bias))
+      temp <- biases %>% summarise(bias=sum(rating - mu - movie_bias - user_bias - user_genre_bias) / (n() + lambda))
+
+      predictions <- test_set %>% left_join(temp, on=years_since_release) %>% 
+        left_join(movies_df, on=movieId) %>% left_join(users_df, on=userId) %>%
+        left_join(tg, on=c(userId, movieId))
+      predictions[is.na(predictions)] = 0
+      predictions <- predictions %>% mutate(pred = mu + movie_bias + user_bias + user_genre_bias + bias)
+    }
+    else {
+    temp <- biases %>% summarise(bias=sum(rating - mu) / (n() + lambda))
+    predictions <- test_set %>% inner_join(temp, on=!!as.symbol(grouping)) %>% mutate(pred = mu + bias) %>% select(rating, pred)
+    }
+  RMSE(predictions$rating, predictions$pred)
+  }
+  sapply(lambdas, FUN = function(x) rate_lambda(x))
+}
+
+movies_lambda <- tune_lambdas("movieId")
+movies_df <- train_set %>% group_by(movieId) %>% summarise(movie_bias=sum(rating - mu)/(n() + lambdas[which.min(movies_lambda)] )) %>% select(movieId, movie_bias)
+train_set <- train_set %>% inner_join(movies_df, on="movieId")
+
+```
+
+
+```{r echo=FALSE, message=FALSE}
+data.frame(rmses=movies_lambda, lambdas = lambdas) %>% ggplot(aes(lambdas, rmses)) + geom_point() + ggtitle(paste("Best RMSE:", round(min(movies_lambda),3), " | Best Lambda:", lambdas[which.min(movies_lambda)]))
+```
+
+In order to make predictions about how a user might rate an unseen movie, we could simply add the known *movie_bias* to our baseline average *mu* like so: *predicted rating = movie_bias + mu*.  
+
+```{r}
+edx[sample(.N, 5)] %>% inner_join(movies_df, on=movieId) %>% select(title, movie_bias) %>% mutate(mu = mu) %>% mutate(predicted_rating = movie_bias + mu)
+```
+### User Effects
+
+If not all movies are created equal, then it stands to reason that not all users are, either. For example, Jane may be a movie buff that rates movies more critically than John, who only watches blockbuster hits. We can, therefore, build upon our previous *movie effect*, by looking at each user's true rating for a movie and subtracting from it that movie's *movie_bias* and our baseline *mu*. 
+
+We will, again, use regularization and cross validation to penalize users with few ratings and to find the best value of *lambda* to minimize our RMSE.
+
+```{r "User Effect" echo=FALSE, message=FALSE}
+users_lambda <- tune_lambdas("userId")
+users_df <- train_set %>% group_by(userId) %>% summarise(user_bias=sum(rating - movie_bias - mu)/(n() + lambdas[which.min(users_lambda)])) %>% select(userId, user_bias)
+
+data.frame(rmses=users_lambda, lambdas = lambdas) %>% ggplot(aes(lambdas, rmses)) + geom_point() + ggtitle(paste("Best RMSE:", round(min(users_lambda),3), " | Best Lambda:", lambdas[which.min(users_lambda)]))
+
+train_set <- train_set %>% inner_join(users_df, on="userId")
+```
+We can then predict how a user will rate an unseen movie by adding their known *user_bias* to the particular movie's known *movie_bias* and adding that to our baseline *mu*. In other words:  *predicted rating = user_bias + movie_bias + mu*. 
+
+```{r}
+edx[sample(.N, 5)] %>% inner_join(movies_df, on=movieId) %>% inner_join(users_df, on=userId) %>% select(title, movie_bias, user_bias) %>% mutate(mu = mu) %>% mutate(predicted_rating = movie_bias + user_bias + mu)
+
+```
+### User Genres Effect
+Some users prefer certain genres more than others. This effect is more challenging to approximate because many movies can be categorized into multiple genres.
+
+```{r}
+
+g <- edx[sample(.N, 5)]
+g
+```
+
+To measure a user's genre preferences, we will need to split each of their ratings up by their constituent genres. Below, we can see the sample ratings above broken down by genre.
+
+```{r}
+g %>% separate_rows(genres, sep="\\|") %>% select(userId, rating, title, genres)
+```
+
+After this is done, we can again use regularization and cross validation to calculate a specific bias that *each user has for each genre they have rated*
+
+```{r "User Genres" echo=FALSE, message=FALSE}
+genre_ratings_df <- train_set %>% separate_rows(genres, sep="\\|")
+test_genre_ratings_df <- test_set %>% separate_rows(genres, sep="\\|")
+genres_lambda <- tune_lambdas("genre")
+
+data.frame(rmses=genres_lambda, lambdas = lambdas) %>% ggplot(aes(lambdas, rmses)) + geom_point() + ggtitle(paste("Best RMSE:", round(min(genres_lambda),6), " | Best Lambda:", lambdas[which.min(genres_lambda)]))
+
+```
+
+
+
+```{r "User Genres Cleaning" echo=FALSE, message=FALSE}
+user_genres_df <- genre_ratings_df %>% group_by(userId, genres) %>% 
+  summarise(genre_bias = sum(rating - movie_bias - user_bias - mu)/(n() + lambdas[which.min(genres_lambda)])) %>% 
+  inner_join(genre_ratings_df, on=genres) %>% select(userId, genres, genre_bias, movieId)
+
+
+user_genres_df_wide <- user_genres_df %>% pivot_wider(names_from = genres, values_from=genre_bias)
+train_set <- train_set %>% inner_join(user_genres_df_wide, on=c("userId", "movieId"))
+
+```
+
+```{r}
+train_set$user_genre_bias <- apply(X=train_set[,6:ncol(train_set)], MARGIN=1, FUN=mean, na.rm=TRUE)
+train_set[sample(.N, 5)] %>% select (-timestamp, -movieId, -genres, -release_year, -years_since_release, -movie_bias, -user_bias)
+```
+
+
+``` {r}
+train_set$user_genre_bias <- apply(X=train_set[,12:ncol(train_set)], MARGIN=1, FUN=mean, na.rm=TRUE)
+
+
+train_set <- train_set %>% select(-title, -genres, -timestamp, -release_year, -rating_year)
+train_set$user_genre_bias <- apply(X=train_set[,6:ncol(train_set)], MARGIN=1, FUN=mean, na.rm=TRUE)
+```
+
+```{r echo=FALSE, message=FALSE}
+
+years_since_release_lambda <- tune_lambdas("years_since_release")
+data.frame(rmses=years_since_release_lambda, lambdas = lambdas) %>% ggplot(aes(lambdas, rmses)) + geom_point() + ggtitle(paste("Best RMSE:", round(min(years_since_release_lambda),6), " | Best Lambda:", lambdas[which.min(years_since_release_lambda)]))
+
+```
+
+Each addition improves our score, but we seem to be approaching the limit. Now that we've tuned our lambda parameters, we can combine our different effects and test our model on our validation set. The lambda parameters to be used for each effect are:
+
+```{r}
+paste("Movie Lambda:", lambdas[which.min(movies_lambda)])
+paste("Users Lambda:", lambdas[which.min(users_lambda)])
+paste("User Genres Lambda:", lambdas[which.min(genres_lambda)])
+paste("Recency Lambda:", lambdas[which.min(years_since_release_lambda)])
+```

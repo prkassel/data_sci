@@ -60,13 +60,13 @@ edx$release_year <- str_sub(edx$title,start= -6)
 edx$release_year <- as.numeric(str_extract(edx$release_year, "\\d+"))
 edx$rating_year <- year(as.Date(as.POSIXct(edx$timestamp,origin="1970-01-01")))
 # Round to the nearest 10 year increment
-edx$years_from_release <- round((edx$rating_year - edx$release_year) / 10) * 10
+edx$years_since_release <- round((edx$rating_year - edx$release_year) / 10) * 10
 
 validation$release_year <- str_sub(validation$title,start= -6)
 validation$release_year <- as.numeric(str_extract(validation$release_year, "\\d+"))
 validation$rating_year <- year(as.Date(as.POSIXct(validation$timestamp,origin="1970-01-01")))
 # Round to the nearest 10 year increment
-validation$years_from_release <- round((validation$rating_year - validation$release_year) / 10) * 10
+validation$years_since_release <- round((validation$rating_year - validation$release_year) / 10) * 10
 
 RMSE <- function(true_ratings, predicted_ratings){
   sqrt(mean((true_ratings - predicted_ratings)^2))
@@ -102,8 +102,8 @@ edx <- edx %>% select(-title, -genres, -timestamp, -release_year, -rating_year)
 edx$user_genre_bias <- apply(X=edx[,6:ncol(edx)], MARGIN=1, FUN=mean, na.rm=TRUE)
 
 #### Time Effect
-recency_df <- edx %>% group_by(years_from_release) %>% 
-  summarise(recency_bias=sum(rating - movie_bias - user_bias - user_genre_bias - mu)/(n() + 10)) %>% select(years_from_release, recency_bias)
+recency_df <- edx %>% group_by(years_since_release) %>% 
+  summarise(recency_bias=sum(rating - movie_bias - user_bias - user_genre_bias - mu)/(n() + 10)) %>% select(years_since_release, recency_bias)
 
 #############
 # Validation Test
@@ -111,7 +111,7 @@ recency_df <- edx %>% group_by(years_from_release) %>%
 validation_genre_ratings_df <- validation %>% separate_rows(genres, sep="\\|")
 
 validation <- validation %>% left_join(movies_df, on="movieId") %>% 
-  left_join(users_df, on="userId") %>% left_join(recency_df, on="years_from_release")
+  left_join(users_df, on="userId") %>% left_join(recency_df, on="years_since_release")
 validation_user_genres_df <- user_genres_df %>% select(-movieId) %>% group_by(userId, genres) %>% summarise(genre_bias = mean(genre_bias))
 validation_genre_biases <- validation_genre_ratings_df %>% left_join(validation_user_genres_df, on=(c("userId", "genres"))) %>% select(userId, movieId, genres, genre_bias)
 validation_genre_biases <- validation_genre_biases %>% pivot_wider(names_from = genres, values_from=genre_bias)
