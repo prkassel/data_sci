@@ -60,12 +60,11 @@ RMSE <- function(true_ratings, predicted_ratings){
   sqrt(mean((true_ratings - predicted_ratings)^2))
 }
 
-edx <- edx[1:1000000,]
 edx$release_year <- str_sub(edx$title,start= -6)
 edx$release_year <- as.numeric(str_extract(edx$release_year, "\\d+"))
 edx$rating_year <- year(as.Date(as.POSIXct(edx$timestamp,origin="1970-01-01")))
-# Round to the nearest 10 year increment
-edx$years_since_release <- round((edx$rating_year - edx$release_year) / 10) * 10
+# Round to the nearest 5 year increment
+edx$years_since_release <- round((edx$rating_year - edx$release_year) / 5) * 5
 
 ind <- createDataPartition(edx$rating, times = 1, p=0.1, list=FALSE)
 
@@ -81,7 +80,7 @@ test_set <- test_set %>%
 
 
 mu <- mean(train_set$rating)
-lambdas <- seq(0,10,0.25)
+lambdas <- seq(0,20,0.5)
 
 tune_lambdas <- function(grouping) {
   print(grouping)
