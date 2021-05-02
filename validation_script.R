@@ -90,14 +90,14 @@ edx <- edx %>% inner_join(movies_df, on="movieId")
 
 ### Calculating User Effect
 users_df <- edx %>% group_by(userId) %>% 
-  summarise(user_bias=sum(rating - movie_bias - mu)/(n())) %>% 
+  summarise(user_bias=sum(rating - movie_bias - mu)/(n() + 4.5)) %>% 
   select(userId, user_bias)
 edx <- edx %>% inner_join(users_df, on="userId")
 
 ### Calculate User Genre Effect For Each Genre Separately
 genre_ratings_df <- edx %>% separate_rows(genres, sep="\\|")
 user_genres_df <- genre_ratings_df %>% group_by(userId, genres) %>% 
-  summarise(genre_bias = sum(rating - movie_bias - user_bias - mu)/(n() + 10)) %>% 
+  summarise(genre_bias = sum(rating - movie_bias - user_bias - mu)/(n() + 15)) %>% 
   inner_join(genre_ratings_df, on=genres) %>% select(userId, genres, genre_bias, movieId)
 
 ### Reassemble Genre Ratings and Average Their Effect
@@ -109,7 +109,7 @@ edx$user_genre_bias <- apply(X=edx[,6:ncol(edx)], MARGIN=1, FUN=mean, na.rm=TRUE
 
 #### Time Effect
 recency_df <- edx %>% group_by(years_since_release) %>% 
-  summarise(recency_bias=sum(rating - movie_bias - user_bias - user_genre_bias - mu)/(n() + 10)) %>% 
+  summarise(recency_bias=sum(rating - movie_bias - user_bias - user_genre_bias - mu)/(n() + 20)) %>% 
   select(years_since_release, recency_bias)
 
 #############

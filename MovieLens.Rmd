@@ -6,57 +6,60 @@ output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
 
-if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
-if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
-if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
-if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
-
+# if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+# if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+# if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+# if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
+# 
 library(tidyverse)
 library(caret)
 library(data.table)
 library(lubridate)
+# 
+# # MovieLens 10M dataset:
+# # https://grouplens.org/datasets/movielens/10m/
+# # http://files.grouplens.org/datasets/movielens/ml-10m.zip
+# 
+# dl <- tempfile()
+# download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+# 
+# ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+#                  col.names = c("userId", "movieId", "rating", "timestamp"))
+# 
+# movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+# colnames(movies) <- c("movieId", "title", "genres")
+# 
+# 
+# # if using R 4.0 or later:
+# movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(movieId),
+#                                            title = as.character(title),
+#                                            genres = as.character(genres))
+# 
+# 
+# movielens <- left_join(ratings, movies, by = "movieId")
+# 
+# # Validation set will be 10% of MovieLens data
+# set.seed(1, sample.kind="Rounding") # if using R 3.5 or earlier, use `set.seed(1)`
+# test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+# edx <- movielens[-test_index,]
+# temp <- movielens[test_index,]
+# 
+# # Make sure userId and movieId in validation set are also in edx set
+# validation <- temp %>%
+#   semi_join(edx, by = "movieId") %>%
+#   semi_join(edx, by = "userId")
+# 
+# # Add rows removed from validation set back into edx set
+# removed <- anti_join(temp, validation)
+# edx <- rbind(edx, removed)
+# 
+# rm(dl, ratings, movies, test_index, temp, movielens, removed)
 
-# MovieLens 10M dataset:
-# https://grouplens.org/datasets/movielens/10m/
-# http://files.grouplens.org/datasets/movielens/ml-10m.zip
-
-dl <- tempfile()
-download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
-
-ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
-                 col.names = c("userId", "movieId", "rating", "timestamp"))
-
-movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
-colnames(movies) <- c("movieId", "title", "genres")
-
-
-# if using R 4.0 or later:
-movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(movieId),
-                                           title = as.character(title),
-                                           genres = as.character(genres))
-
-
-movielens <- left_join(ratings, movies, by = "movieId")
-
-# Validation set will be 10% of MovieLens data
-set.seed(1, sample.kind="Rounding") # if using R 3.5 or earlier, use `set.seed(1)`
-test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
-edx <- movielens[-test_index,]
-temp <- movielens[test_index,]
-
-# Make sure userId and movieId in validation set are also in edx set
-validation <- temp %>%
-  semi_join(edx, by = "movieId") %>%
-  semi_join(edx, by = "userId")
-
-# Add rows removed from validation set back into edx set
-removed <- anti_join(temp, validation)
-edx <- rbind(edx, removed)
-
-rm(dl, ratings, movies, test_index, temp, movielens, removed)
-
+```
+```{r echo=FALSE, message=FALSE}
+load('movielens.RData')
 ```
 
 
@@ -140,10 +143,18 @@ lower than average.
 
 ``` {r}
 
-titles <- c("Mars Attacks! (1996)", "Dumb and Dumberer: When Harry Met Lloyd (2003)", "Godfather, The (1972)", "Gone with the Wind (1939)", "War of the Worlds 2: The Next Wave (2008)", "Hellhounds on My Trail (1999)")
+titles <- c("Mars Attacks! (1996)", 
+            "Dumb and Dumberer: When Harry Met Lloyd (2003)", 
+            "Godfather, The (1972)", 
+            "Gone with the Wind (1939)", 
+            "War of the Worlds 2: The Next Wave (2008)", 
+            "Hellhounds on My Trail (1999)")
 
-edx %>% filter(title %in% titles) %>% group_by(title) %>% summarise(avg_movie_rating=mean(rating)) %>% arrange(avg_movie_rating) %>% 
-  mutate(title = strtrim(title, 25)) %>% ggplot(aes(title, avg_movie_rating)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+edx %>% filter(title %in% titles) %>% group_by(title) %>% 
+  summarise(avg_movie_rating=mean(rating)) %>% arrange(avg_movie_rating) %>% 
+  mutate(title = strtrim(title, 25)) %>% ggplot(aes(title, avg_movie_rating)) + 
+  geom_bar(stat="identity") + 
+  theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
   ggtitle("Sample of Average Movie Ratings")
 
 ```
@@ -160,7 +171,11 @@ very few times.
 ``` {r}
 
 
-edx %>% filter(title %in% titles) %>% group_by(title) %>% summarise(avg_movie_rating=mean(rating), number_of_ratings = n()) %>% arrange(number_of_ratings) %>% ggplot(aes(number_of_ratings, avg_movie_rating, color=title)) + geom_point() + ggtitle("Avg Movie Rating Compared To Number of Reviews")
+edx %>% filter(title %in% titles) %>% group_by(title) %>% 
+  summarise(avg_movie_rating=mean(rating), number_of_ratings = n()) %>% 
+  arrange(number_of_ratings) %>% 
+  ggplot(aes(number_of_ratings, avg_movie_rating, color=title)) + 
+  geom_point() + ggtitle("Avg Movie Rating Compared To Number of Reviews")
 
 ```
 
@@ -212,47 +227,73 @@ tune_lambdas <- function(grouping) {
   }
   rate_lambda <- function(lambda) {
     if (grouping == "genre") {
-      temp <- biases %>% summarise(genre_bias = sum(rating - movie_bias - user_bias - mu)/(n() + lambda))
+      temp <- biases %>% 
+        summarise(genre_bias = sum(rating - movie_bias - user_bias - mu) /
+                    (n() + lambda))
       temp <- temp %>% inner_join(test_genre_ratings_df, on=genres)
+      
       predictions <- temp %>% 
-        left_join(movies_df, on="movieId") %>% left_join(users_df, on="userId") %>%
+        left_join(movies_df, on="movieId") %>% 
+        left_join(users_df, on="userId") %>%
         mutate(pred=mu + genre_bias + movie_bias + user_bias)
     }
     else if (grouping == "userId") {
-      temp <- biases %>% summarise(user_bias = sum(rating - movie_bias - mu)/(n() + lambda))
-      predictions <- test_set %>% inner_join(temp, on=!!as.symbol(grouping)) %>% 
-        left_join(movies_df, on=movieId) %>% mutate(pred = mu + movie_bias + user_bias) %>% select(rating, pred)
+      temp <- biases %>% 
+        summarise(user_bias = sum(rating - movie_bias - mu)/(n() + lambda))
+      
+      predictions <- test_set %>% 
+        inner_join(temp, on=!!as.symbol(grouping)) %>% 
+        left_join(movies_df, on=movieId) %>% 
+        mutate(pred = mu + movie_bias + user_bias) %>% 
+        select(rating, pred)
     }
     else if (grouping == "years_since_release") {
-      ug <- user_genres_df %>% select(-movieId) %>% group_by(userId, genres) %>% summarise(genre_bias = mean(genre_bias))
-      tg <- test_genre_ratings_df %>% inner_join(ug, on=genres) %>% group_by(userId, movieId) %>% 
+      ug <- user_genres_df %>% select(-movieId) %>% 
+        group_by(userId, genres) %>% summarise(genre_bias = mean(genre_bias))
+      
+      tg <- test_genre_ratings_df %>% inner_join(ug, on=genres) %>% 
+        group_by(userId, movieId) %>% 
         summarise(user_genre_bias = mean(genre_bias))
-      temp <- biases %>% summarise(bias=sum(rating - mu - movie_bias - user_bias - user_genre_bias) / (n() + lambda))
+      
+      temp <- biases %>% 
+        summarise(bias=sum(rating - mu - movie_bias - user_bias - user_genre_bias) / (n() + lambda))
 
       predictions <- test_set %>% left_join(temp, on=years_since_release) %>% 
         left_join(movies_df, on=movieId) %>% left_join(users_df, on=userId) %>%
         left_join(tg, on=c(userId, movieId))
+      
       predictions[is.na(predictions)] = 0
-      predictions <- predictions %>% mutate(pred = mu + movie_bias + user_bias + user_genre_bias + bias)
+      
+      predictions <- predictions %>% 
+        mutate(pred = mu + movie_bias + user_bias + user_genre_bias + bias)
     }
     else {
     temp <- biases %>% summarise(bias=sum(rating - mu) / (n() + lambda))
-    predictions <- test_set %>% inner_join(temp, on=!!as.symbol(grouping)) %>% mutate(pred = mu + bias) %>% select(rating, pred)
+    predictions <- test_set %>% inner_join(temp, on=!!as.symbol(grouping)) %>% 
+      mutate(pred = mu + bias) %>% select(rating, pred)
     }
-  RMSE(predictions$rating, predictions$pred)
+  
+    RMSE(predictions$rating, predictions$pred)
   }
   sapply(lambdas, FUN = function(x) rate_lambda(x))
 }
 
 movies_lambda <- tune_lambdas("movieId")
-movies_df <- train_set %>% group_by(movieId) %>% summarise(movie_bias=sum(rating - mu)/(n() + lambdas[which.min(movies_lambda)] )) %>% select(movieId, movie_bias)
+movies_df <- train_set %>% group_by(movieId) %>% 
+  summarise(movie_bias=sum(rating - mu)/(n() + 
+  lambdas[which.min(movies_lambda)])) %>% 
+  select(movieId, movie_bias)
+
 train_set <- train_set %>% inner_join(movies_df, on="movieId")
 
 ```
 
 
 ```{r message=FALSE}
-data.frame(rmses=movies_lambda, lambdas = lambdas) %>% ggplot(aes(lambdas, rmses)) + geom_point() + ggtitle(paste("Best RMSE:", round(min(movies_lambda),6), " | Best Lambda:", lambdas[which.min(movies_lambda)]))
+data.frame(rmses=movies_lambda, lambdas = lambdas) %>% 
+  ggplot(aes(lambdas, rmses)) + geom_point() + 
+  ggtitle(paste("Best RMSE:", round(min(movies_lambda),6), 
+                " | Best Lambda:", lambdas[which.min(movies_lambda)]))
 ```
 
 In order to make predictions about how a user might rate an unseen movie, 
@@ -261,7 +302,9 @@ so: *predicted rating = movie_bias + mu*.
 
 ```{r message=FALSE}
 
-train_set[sample(.N, 5)] %>% inner_join(movies_df, on=movieId) %>% select(title, movie_bias) %>% mutate(mu = mu) %>% mutate(predicted_rating = movie_bias + mu)  
+train_set[sample(.N, 5)] %>% inner_join(movies_df, on=movieId) %>% 
+  select(title, movie_bias) %>% mutate(mu = mu) %>% 
+  mutate(predicted_rating = movie_bias + mu)  
 
 ```
 
@@ -283,10 +326,14 @@ calculate each user's *user bias*) that minimizes RMSE.
 
 users_lambda <- tune_lambdas("userId")
 users_df <- train_set %>% group_by(userId) %>% 
-  summarise(user_bias=sum(rating - movie_bias - mu)/(n() + lambdas[which.min(users_lambda)])) %>% 
+  summarise(user_bias=sum(rating - movie_bias - mu)/(n() + 
+  lambdas[which.min(users_lambda)])) %>% 
   select(userId, user_bias)
 
-data.frame(rmses=users_lambda, lambdas = lambdas) %>% ggplot(aes(lambdas, rmses)) + geom_point() + ggtitle(paste("Best RMSE:", round(min(users_lambda),6), " | Best Lambda:", lambdas[which.min(users_lambda)]))
+data.frame(rmses=users_lambda, lambdas = lambdas) %>% 
+  ggplot(aes(lambdas, rmses)) + geom_point() + ggtitle(paste("Best RMSE:", 
+    round(min(users_lambda),6), " | Best Lambda:", 
+    lambdas[which.min(users_lambda)]))
 
 train_set <- train_set %>% inner_join(users_df, on="userId")
 
@@ -302,7 +349,10 @@ and adding that to our baseline *mu*.
 In other words: *predicted rating = user_bias + movie_bias + mu*. 
 
 ```{r message=FALSE}
-train_set[sample(.N, 5)] %>% inner_join(movies_df, on=movieId) %>% inner_join(users_df, on=userId) %>% select(title, movie_bias, user_bias) %>% mutate(mu = mu) %>% mutate(predicted_rating = movie_bias + user_bias + mu)
+train_set[sample(.N, 5)] %>% inner_join(movies_df, on=movieId) %>% 
+  inner_join(users_df, on=userId) %>% 
+  select(title, movie_bias, user_bias) %>% mutate(mu = mu) %>% 
+  mutate(predicted_rating = movie_bias + user_bias + mu)
 
 ```
 
@@ -336,7 +386,10 @@ genre_ratings_df <- train_set %>% separate_rows(genres, sep="\\|")
 test_genre_ratings_df <- test_set %>% separate_rows(genres, sep="\\|")
 genres_lambda <- tune_lambdas("genre")
 
-data.frame(rmses=genres_lambda, lambdas = lambdas) %>% ggplot(aes(lambdas, rmses)) + geom_point() + ggtitle(paste("Best RMSE:", round(min(genres_lambda),6), " | Best Lambda:", lambdas[which.min(genres_lambda)]))
+data.frame(rmses=genres_lambda, lambdas = lambdas) %>% 
+  ggplot(aes(lambdas, rmses)) + geom_point() + 
+  ggtitle(paste("Best RMSE:", round(min(genres_lambda),6), 
+                " | Best Lambda:", lambdas[which.min(genres_lambda)]))
 
 ```
 
@@ -350,12 +403,17 @@ we'll call *user_genre_bias*.
 
 ```{r message=FALSE}
 user_genres_df <- genre_ratings_df %>% group_by(userId, genres) %>% 
-  summarise(genre_bias = sum(rating - movie_bias - user_bias - mu)/(n() + lambdas[which.min(genres_lambda)])) %>% 
-  inner_join(genre_ratings_df, on=genres) %>% select(userId, genres, genre_bias, movieId)
+  summarise(genre_bias = sum(rating - movie_bias - user_bias - mu)/(n() + 
+  lambdas[which.min(genres_lambda)])) %>% 
+  inner_join(genre_ratings_df, on=genres) %>% 
+  select(userId, genres, genre_bias, movieId)
 
 
-user_genres_df_wide <- user_genres_df %>% pivot_wider(names_from = genres, values_from=genre_bias)
-train_set <- train_set %>% inner_join(user_genres_df_wide, on=c("userId", "movieId"))
+user_genres_df_wide <- user_genres_df %>% 
+  pivot_wider(names_from = genres, values_from=genre_bias)
+
+train_set <- train_set %>% 
+  inner_join(user_genres_df_wide, on=c("userId", "movieId"))
 
 ```
 
@@ -363,14 +421,21 @@ train_set <- train_set %>% inner_join(user_genres_df_wide, on=c("userId", "movie
 
 ```{r echo=FALSE}
 
-train_set$user_genre_bias <- apply(X=train_set[,12:ncol(train_set)], MARGIN=1, FUN=mean, na.rm=TRUE)
-train_set[sample(.N, 5)] %>% select (-timestamp, -movieId, -genres, -release_year, -years_since_release, -movie_bias, -user_bias)
+train_set$user_genre_bias <- apply(X=train_set[,12:ncol(train_set)], 
+                                   MARGIN=1, FUN=mean, na.rm=TRUE)
+train_set[sample(.N, 5)] %>% 
+  select (-timestamp, -movieId, -genres, 
+          -release_year, -years_since_release, 
+          -movie_bias, -user_bias)
 ```
 
 
 ``` {r echo=FALSE}
-train_set$user_genre_bias <- apply(X=train_set[,12:ncol(train_set)], MARGIN=1, FUN=mean, na.rm=TRUE)
-train_set <- train_set %>% select(-title, -genres, -timestamp, -release_year, -rating_year)
+train_set$user_genre_bias <- apply(X=train_set[,12:ncol(train_set)], 
+                                   MARGIN=1, FUN=mean, na.rm=TRUE)
+train_set <- train_set %>% 
+  select(-title, -genres, -timestamp, -release_year, -rating_year)
+
 train_set$user_genre_bias <- apply(X=train_set[,6:ncol(train_set)], MARGIN=1, FUN=mean, na.rm=TRUE)
 ```
 
@@ -381,10 +446,14 @@ classics like "Gone with the Wind" and "Citizen Kane". Indeed, we can see a
 fairly strong correlation between the average rating and the length of time 
 since a movie was released.
 
-```{r echo=FALSE}
+```{r echo=FALSE, message=FALSE}
 
-edx %>% group_by(years_since_release) %>% summarise(avg_rating=(sum(rating) / n() + 0.1)) %>%
-  ggplot(aes(years_since_release, avg_rating)) + geom_point() + geom_smooth() + geom_hline(yintercept=mu, linetype="dashed", color = "red", size=.5) +ggtitle("Average Movie Rating Compared To Years Since Release")
+edx %>% group_by(years_since_release) %>% 
+  summarise(avg_rating=(sum(rating) / n() + 0.1)) %>%
+  ggplot(aes(years_since_release, avg_rating)) + 
+  geom_point() + geom_smooth() + 
+  geom_hline(yintercept=mu, linetype="dashed", color = "red", size=.5) + 
+  ggtitle("Average Movie Rating Compared To Years Since Release")
 
 ```
 
@@ -402,7 +471,11 @@ We will call this final parameter *recency_bias*.
 ```{r}
 edx %>% filter(title %in% c("Birdcage, The (1996)", "Happy Gilmore (1996)")) %>%
   group_by(years_since_release, title) %>% summarise(avg_rating=mean(rating)) %>%
-  ggplot(aes(years_since_release, avg_rating, color=title)) + geom_point() + geom_smooth() + geom_hline(yintercept=mu, linetype="dashed", color = "red", size=.5) +ggtitle("Average Movie Rating Compared To Years Since Release")
+  ggplot(aes(years_since_release, avg_rating, color=title)) + 
+  geom_point() + geom_smooth() + 
+  geom_hline(yintercept=mu, linetype="dashed", color = "red", size=.5) + 
+  ggtitle("Average Movie Rating Compared To Years Since Release")
+
 ```
 
 
@@ -413,11 +486,17 @@ to tune our penalty term *lambda* to minimize our RMSE.
 
 years_since_release_lambda <- tune_lambdas("years_since_release")
 recency_df <- train_set %>% group_by(years_since_release) %>% 
-  summarise(recency_bias=sum(rating - movie_bias - user_bias - user_genre_bias - mu)/(n() + lambdas[which.min(years_since_release_lambda)])) %>% select(years_since_release, recency_bias)
+  summarise(recency_bias=sum(rating - movie_bias - 
+  user_bias - user_genre_bias - mu)/(n() + 
+  lambdas[which.min(years_since_release_lambda)])) %>% 
+  select(years_since_release, recency_bias)
 
 train_set <- train_set %>% inner_join(recency_df, on="years_since_release")
 
-data.frame(rmses=years_since_release_lambda, lambdas = lambdas) %>% ggplot(aes(lambdas, rmses)) + geom_point() + ggtitle(paste("Best RMSE:", round(min(years_since_release_lambda),6), " | Best Lambda:", lambdas[which.min(years_since_release_lambda)]))
+data.frame(rmses=years_since_release_lambda, lambdas = lambdas) %>% 
+  ggplot(aes(lambdas, rmses)) + geom_point() + 
+  ggtitle(paste("Best RMSE:", round(min(years_since_release_lambda),6), 
+  " | Best Lambda:", lambdas[which.min(years_since_release_lambda)]))
 
 ```
 
@@ -503,22 +582,25 @@ validation$pred<- validation$movie_bias + validation$user_bias + validation$user
 
 ```
 
-#### Model Performance On Validation Set (RMSE): `r RMSE(validation$rating, validation$pred)`
 
 ## Conclusion
+
+### Final RMSE (Validation Set): `r RMSE(validation$rating, validation$pred)`
+
 
 To showcase the performance of our model, we can observe a random selection
 of ratings from the validation set and compare our predicted rating against
 the true rating that was given.
 
-```{r}
-results_sample <- validation[sample(.N, 20)] %>% mutate(prediction = round(pred / .5) *.5)
-print(results_sample) %>% select(userId, title, rating, prediction)
+```{r echo=FALSE, message=FALSE}
+validation[sample(.N, 20)] %>% 
+  mutate(prediction = round(pred / .5) *.5) %>% 
+  select(userId, title, rating, prediction)
 ```
 
 
 Overall, the model performs very well against the validation set and with 
-relatively few predictors. While we were successful in achieving  our goal
+relatively few predictors. While we were successful in achieving our goal
 of a residual mean error (RMSE) < 0.86490, the author would like to point out
 that, even when only applying cross-validation on approximately 10% of the 
 training set, it takes a very long time for the model to run. It likely will not
