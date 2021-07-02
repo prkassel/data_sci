@@ -1,1 +1,2 @@
-# data_sci
+# Movie Recommendation System Project
+

@@ -1,3 +1,7 @@
 movielens.RData
 
 chi_crime/crimes.csv
+
+.DS_store
+
+.Rhistory
